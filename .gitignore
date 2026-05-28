@@ -1,0 +1,19 @@
+# Environment / secrets
+.env
+
+# Cache
+.weather_cache.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+venv/
+.venv/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
