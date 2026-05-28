@@ -9,18 +9,18 @@ if sys.platform == "win32":
 
 from dotenv import load_dotenv
 
-from api_client import (
+from .api_client import (
     CityNotFoundError,
     WeatherAPIError,
     get_current_weather,
     get_forecast,
 )
-from formatter import render_current, render_error, render_forecast
+from .formatter import render_current, render_error, render_forecast
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        prog="weather",
+        prog="weather-enquire",
         description="Get current weather and forecast for any city.",
     )
     parser.add_argument(

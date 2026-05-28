@@ -11,6 +11,13 @@ __pycache__/
 *.pyd
 venv/
 .venv/
+test-venv/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+*.egg
 
 # Editor / OS
 .vscode/
