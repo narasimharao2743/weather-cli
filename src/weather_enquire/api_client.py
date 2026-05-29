@@ -8,6 +8,7 @@ from pathlib import Path
 import requests
 
 BASE_URL = "https://api.openweathermap.org/data/2.5"
+GEO_URL = "https://api.openweathermap.org/geo/1.0/direct"
 CACHE_PATH = Path.home() / ".weather_cache.json"
 CACHE_TTL_SECONDS = 600  # 10 minutes
 
@@ -52,31 +53,66 @@ def _set_cached(key: str, data: dict) -> None:
     _save_cache(cache)
 
 
-def _call(endpoint: str, params: dict) -> dict:
+def _api_key() -> str:
     api_key = os.getenv("OPENWEATHER_API_KEY")
     if not api_key:
         raise WeatherAPIError(
             "OPENWEATHER_API_KEY is not set. Add it to your .env file."
         )
+    return api_key
 
-    params = {**params, "appid": api_key, "units": "metric"}
 
+def _request(url: str, params: dict) -> requests.Response:
     try:
-        response = requests.get(f"{BASE_URL}/{endpoint}", params=params, timeout=10)
+        response = requests.get(url, params=params, timeout=10)
     except requests.RequestException as exc:
         raise WeatherAPIError(f"Network error: {exc}") from exc
 
-    if response.status_code == 404:
-        raise CityNotFoundError(f"City not found: {params.get('q')}")
     if response.status_code == 401:
         raise WeatherAPIError(
             "Invalid API key. New keys can take up to 2 hours to activate."
         )
+    return response
+
+
+def _geocode(city: str) -> tuple[float, float]:
+    """Resolve a city name to (lat, lon) via the Geocoding API.
+
+    The geocoding database is far larger than the legacy /weather?q= city
+    list, so smaller towns that 404 on the old endpoint resolve here.
+    """
+    cache_key = f"geo:{city.lower()}"
+    cached = _get_cached(cache_key)
+    if cached is not None:
+        return cached["lat"], cached["lon"]
+
+    response = _request(GEO_URL, {"q": city, "limit": 1, "appid": _api_key()})
+    if response.status_code != 200:
+        raise WeatherAPIError(
+            f"Geocoding API returned {response.status_code}: {response.text[:200]}"
+        )
+
+    results = response.json()
+    if not results:
+        raise CityNotFoundError(f"City not found: {city}")
+
+    lat, lon = results[0]["lat"], results[0]["lon"]
+    _set_cached(cache_key, {"lat": lat, "lon": lon})
+    return lat, lon
+
+
+def _call(endpoint: str, lat: float, lon: float) -> dict:
+    params = {
+        "lat": lat,
+        "lon": lon,
+        "appid": _api_key(),
+        "units": "metric",
+    }
+    response = _request(f"{BASE_URL}/{endpoint}", params)
     if response.status_code != 200:
         raise WeatherAPIError(
             f"API returned {response.status_code}: {response.text[:200]}"
         )
-
     return response.json()
 
 
@@ -86,7 +122,8 @@ def get_current_weather(city: str) -> dict:
     if cached is not None:
         return cached
 
-    data = _call("weather", {"q": city})
+    lat, lon = _geocode(city)
+    data = _call("weather", lat, lon)
     _set_cached(cache_key, data)
     return data
 
@@ -97,6 +134,7 @@ def get_forecast(city: str) -> dict:
     if cached is not None:
         return cached
 
-    data = _call("forecast", {"q": city})
+    lat, lon = _geocode(city)
+    data = _call("forecast", lat, lon)
     _set_cached(cache_key, data)
     return data
