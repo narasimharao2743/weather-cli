@@ -75,16 +75,18 @@ def _request(url: str, params: dict) -> requests.Response:
     return response
 
 
-def _geocode(city: str) -> tuple[float, float]:
-    """Resolve a city name to (lat, lon) via the Geocoding API.
+def _geocode(city: str) -> dict:
+    """Resolve a city name to {lat, lon, name} via the Geocoding API.
 
     The geocoding database is far larger than the legacy /weather?q= city
-    list, so smaller towns that 404 on the old endpoint resolve here.
+    list, so smaller towns that 404 on the old endpoint resolve here. We also
+    keep the geocoder's city name, which is cleaner than the weather station
+    name the coordinate endpoint returns (e.g. "Bengaluru", not "Kanija Bhavan").
     """
     cache_key = f"geo:{city.lower()}"
     cached = _get_cached(cache_key)
     if cached is not None:
-        return cached["lat"], cached["lon"]
+        return cached
 
     response = _request(GEO_URL, {"q": city, "limit": 1, "appid": _api_key()})
     if response.status_code != 200:
@@ -96,9 +98,13 @@ def _geocode(city: str) -> tuple[float, float]:
     if not results:
         raise CityNotFoundError(f"City not found: {city}")
 
-    lat, lon = results[0]["lat"], results[0]["lon"]
-    _set_cached(cache_key, {"lat": lat, "lon": lon})
-    return lat, lon
+    place = {
+        "lat": results[0]["lat"],
+        "lon": results[0]["lon"],
+        "name": results[0]["name"],
+    }
+    _set_cached(cache_key, place)
+    return place
 
 
 def _call(endpoint: str, lat: float, lon: float) -> dict:
@@ -122,8 +128,10 @@ def get_current_weather(city: str) -> dict:
     if cached is not None:
         return cached
 
-    lat, lon = _geocode(city)
-    data = _call("weather", lat, lon)
+    place = _geocode(city)
+    data = _call("weather", place["lat"], place["lon"])
+    # Prefer the geocoder's city name over the weather station name.
+    data["name"] = place["name"]
     _set_cached(cache_key, data)
     return data
 
@@ -134,7 +142,7 @@ def get_forecast(city: str) -> dict:
     if cached is not None:
         return cached
 
-    lat, lon = _geocode(city)
-    data = _call("forecast", lat, lon)
+    place = _geocode(city)
+    data = _call("forecast", place["lat"], place["lon"])
     _set_cached(cache_key, data)
     return data
